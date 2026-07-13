@@ -57,7 +57,7 @@ export default function ChannelPage() {
   })()
 
   const displayUrl = useProxy && defaultStream
-    ? `https://api.allorigins.win/raw?url=${encodeURIComponent(defaultStream.url)}`
+    ? `/api/proxy?url=${encodeURIComponent(defaultStream.url)}${defaultStream.user_agent ? `&ua=${encodeURIComponent(defaultStream.user_agent)}` : ''}${defaultStream.referrer ? `&ref=${encodeURIComponent(defaultStream.referrer)}` : ''}`
     : defaultStream?.url || ''
 
   return (
@@ -121,6 +121,8 @@ export default function ChannelPage() {
             quality={defaultStream.quality || null}
             label={defaultStream.label || null}
             isProxied={useProxy}
+            userAgent={defaultStream.user_agent || null}
+            referrer={defaultStream.referrer || null}
           />
 
           {/* Stream selector */}
@@ -164,14 +166,16 @@ export default function ChannelPage() {
             </label>
 
             {/* Open in VLC */}
-            <a
-              href={defaultStream.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-auto px-3 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 text-xs hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors"
-            >
-              Ouvrir dans VLC ↗
-            </a>
+            <div className="ml-auto flex items-center gap-2">
+              <a
+                href={defaultStream.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 text-xs hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors"
+              >
+                Ouvrir dans VLC ↗
+              </a>
+            </div>
           </div>
         </div>
       ) : (
