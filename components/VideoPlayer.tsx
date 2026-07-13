@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useRef, useEffect } from 'react'
 
 interface VideoPlayerProps {
@@ -10,30 +8,75 @@ interface VideoPlayerProps {
   isProxied?: boolean
 }
 
+interface HlsErrorData {
+  fatal: boolean
+  type: string
+  details: string
+  response?: {
+    code: number
+  }
+}
+
+interface HlsInstance {
+  loadSource: (url: string) => void
+  attachMedia: (video: HTMLVideoElement) => void
+  on: (event: string, callback: (event: unknown, data: HlsErrorData) => void) => void
+  destroy: () => void
+}
+
+interface HlsModule {
+  isSupported: () => boolean
+  Events: {
+    MANIFEST_PARSED: string
+    ERROR: string
+  }
+  new (config: {
+    enableWorker: boolean
+    lowLatencyMode: boolean
+    backBufferLength: number
+    maxBufferLength: number
+    maxMaxBufferLength: number
+  }): HlsInstance
+}
+
 export default function VideoPlayer({ streamUrl, channelName, quality, label, isProxied }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const hlsRef = useRef<any>(null)
+  const hlsRef = useRef<{
+    loadSource: (url: string) => void
+    attachMedia: (video: HTMLVideoElement) => void
+    on: (event: string, callback: (event: unknown, data: HlsErrorData) => void) => void
+    destroy: () => void
+  } | null>(null)
   const retryCountRef = useRef(0)
+  const maxRetries = 2
+  const isDestroyedRef = useRef(false)
 
   useEffect(() => {
-    let hls: any = null
+    isDestroyedRef.current = false
+    let hls: {
+      loadSource: (url: string) => void
+      attachMedia: (video: HTMLVideoElement) => void
+      on: (event: string, callback: (event: unknown, data: HlsErrorData) => void) => void
+      destroy: () => void
+    } | null = null
     const video = videoRef.current
     if (!video || !streamUrl) {
       setStatus('idle')
       return
     }
-
-    // Reset state
-    setStatus('loading')
     setErrorMsg('')
     retryCountRef.current = 0
 
     const initPlayer = async () => {
       // Clean up previous HLS instance
       if (hlsRef.current) {
-        hlsRef.current.destroy()
+        try {
+          hlsRef.current.destroy()
+        } catch {
+          // Ignore cleanup errors
+        }
         hlsRef.current = null
       }
 
@@ -48,7 +91,8 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, is
         }, { once: true })
         try {
           await video.play()
-        } catch (e: any) {
+        } catch (err) {
+          const e = err as Error
           setStatus('error')
           setErrorMsg(e.name === 'NotAllowedError'
             ? 'Clique sur le lecteur pour lancer la lecture'
@@ -59,14 +103,14 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, is
 
       // HLS.js for Chrome/Edge/Firefox
       try {
-        const Hls = (await import('hls.js')).default
-        if (!Hls.isSupported()) {
+        const HlsModule = (await import('hls.js')).default as HlsModule
+        if (!HlsModule.isSupported()) {
           setStatus('error')
           setErrorMsg('HLS non supporté par ce navigateur')
           return
         }
 
-        hls = new Hls({
+        hls = new HlsModule({
           enableWorker: true,
           lowLatencyMode: false,
           backBufferLength: 30,
@@ -79,24 +123,40 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, is
         hls.loadSource(streamUrl)
         hls.attachMedia(video)
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().catch((e: any) => {
-            if (e.name === 'NotAllowedError') {
+        hls.on(HlsModule.Events.MANIFEST_PARSED, () => {
+          video.play().catch((e: unknown) => {
+            const err = e as Error
+            if (err.name === 'NotAllowedError') {
               setStatus('error')
               setErrorMsg('Clique sur le lecteur pour lancer la lecture')
             }
           })
         })
 
-        hls.on(Hls.Events.ERROR, (_event: any, data: any) => {
+        hls.on(HlsModule.Events.ERROR, (_event: unknown, data: HlsErrorData) => {
           if (data.fatal) {
             console.warn('HLS fatal error:', data.type, data.details)
-            setStatus('error')
-            if (data.response?.code === 0 || data.details === 'manifestLoadError') {
-              setErrorMsg(isProxied
-                ? 'Le proxy n\'a pas pu charger ce flux'
-                : 'Flux bloqué par CORS — active le proxy ci-dessous')
+
+            if (data.details === 'manifestLoadError' || data.details === 'manifestLoadTimeout' || data.response?.code === 0) {
+              // Network/CORS error - try proxy if not already using it
+              if (!isProxied && retryCountRef.current < maxRetries) {
+                retryCountRef.current++
+                console.log(`Retrying with proxy (attempt ${retryCountRef.current}/${maxRetries})`)
+                // Let parent handle proxy toggle via callback
+                setStatus('error')
+                setErrorMsg(isProxied
+                  ? 'Le proxy n\'a pas pu charger ce flux'
+                  : 'Flux bloqué par CORS — active le proxy ci-dessous')
+              } else {
+                setStatus('error')
+                if (isProxied) {
+                  setErrorMsg('Le proxy n\'a pas pu charger ce flux')
+                } else {
+                  setErrorMsg('Flux bloqué par CORS — active le proxy ci-dessous')
+                }
+              }
             } else {
+              setStatus('error')
               setErrorMsg(`Erreur: ${data.type}`)
             }
           }
@@ -118,8 +178,13 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, is
     initPlayer()
 
     return () => {
+      isDestroyedRef.current = true
       if (hls) {
-        hls.destroy()
+        try {
+          hls.destroy()
+        } catch {
+          // Ignore cleanup errors
+        }
         hlsRef.current = null
       }
       video.removeAttribute('src')

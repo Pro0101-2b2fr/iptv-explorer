@@ -1,6 +1,6 @@
 'use client'
 
-import { useFavorites, FavoriteChannel } from '@/lib/favorites'
+import { useFavorites } from '@/lib/favorites'
 import { useToast } from './ToastProvider'
 
 interface FavoriteButtonProps {
