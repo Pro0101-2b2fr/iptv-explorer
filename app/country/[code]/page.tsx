@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useChannelsByCountry, useCategories, useCountryName } from '@/lib/client-data'
@@ -13,16 +13,54 @@ export default function CountryPage() {
   const { channels, loading } = useChannelsByCountry(code)
   const countryName = useCountryName(code)
   const categories = useCategories()
-
-  // Filter + pagination state
-  const [activeCategory, setActiveCategory] = useState<string | null>(null)
-  const [page, setPage] = useState(1)
   const perPage = 40
 
-  // Reset page when category changes
+  // Read initial state from URL (avoid useSearchParams — needs Suspense)
+  const getStateFromUrl = useCallback((): { cat: string | null; pg: number } => {
+    if (typeof window === 'undefined') return { cat: null, pg: 1 }
+    const sp = new URLSearchParams(window.location.search)
+    return {
+      cat: sp.get('category') || null,
+      pg: Math.max(1, parseInt(sp.get('page') || '1', 10)),
+    }
+  }, [])
+
+  const initial = getStateFromUrl()
+  const [activeCategory, setActiveCategory] = useState<string | null>(initial.cat)
+  const [page, setPage] = useState(initial.pg)
+  const syncedOnce = useRef(false)
+
+  // Sync state back to URL when category or page changes
+  const syncUrl = useCallback(
+    (cat: string | null, p: number) => {
+      const sp = new URLSearchParams()
+      if (cat) sp.set('category', cat)
+      if (p > 1) sp.set('page', p.toString())
+      const qs = sp.toString()
+      const newUrl = `/country/${code}${qs ? '?' + qs : ''}`
+      window.history.replaceState(null, '', newUrl)
+    },
+    [code]
+  )
+
+  // Sync initial state once channels are loaded (handles fresh page loads with URL params)
+  useEffect(() => {
+    if (loading || channels.length === 0 || syncedOnce.current) return
+    const { cat, pg } = getStateFromUrl()
+    if (cat !== activeCategory) setActiveCategory(cat)
+    if (pg !== page) setPage(pg)
+    syncedOnce.current = true
+  })
+
   const handleCategory = (cat: string | null) => {
     setActiveCategory(cat)
     setPage(1)
+    syncUrl(cat, 1)
+  }
+
+  const handlePage = (p: number) => {
+    setPage(p)
+    syncUrl(activeCategory, p)
   }
 
   // Apply filters
@@ -34,10 +72,13 @@ export default function CountryPage() {
   const totalPages = Math.ceil(filtered.length / perPage)
   const paginated = filtered.slice((page - 1) * perPage, page * perPage)
 
-  // Reset page if it exceeds new total
+  // Adjust page if it exceeds new total
   useEffect(() => {
-    if (page > totalPages && totalPages > 0) setPage(totalPages)
-  }, [totalPages, page])
+    if (page > totalPages && totalPages > 0) {
+      setPage(totalPages)
+      syncUrl(activeCategory, totalPages)
+    }
+  }, [totalPages, page, activeCategory, syncUrl])
 
   if (loading) {
     return (
@@ -156,7 +197,7 @@ export default function CountryPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-4 mt-8">
           <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
+            onClick={() => handlePage(page - 1)}
             disabled={page <= 1}
             className="px-4 py-2 rounded-lg bg-zinc-800/50 text-zinc-300 text-sm hover:bg-zinc-700/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
@@ -166,7 +207,7 @@ export default function CountryPage() {
             Page {page} / {totalPages}
           </span>
           <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            onClick={() => handlePage(page + 1)}
             disabled={page >= totalPages}
             className="px-4 py-2 rounded-lg bg-zinc-800/50 text-zinc-300 text-sm hover:bg-zinc-700/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
