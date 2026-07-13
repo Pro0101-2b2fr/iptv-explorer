@@ -16,7 +16,6 @@ export default function ChannelPage() {
   const countryName = useCountryName(channel?.country || '')
 
   const [activeUrl, setActiveUrl] = useState<string | null>(null)
-  const [useProxy, setUseProxy] = useState(false)
 
   if (loadingCh) {
     return (
@@ -56,12 +55,7 @@ export default function ChannelPage() {
     return hd || uniqueStreams[0] || null
   })()
 
-  // Proxy only for HLS (segmented .ts files, short fetches → fits Vercel timeout)
-  // TS/FLV streams go direct to let mpegts.js handle them with custom headers
-  const isHls = defaultStream?.url.toLowerCase().includes('.m3u8')
-  const displayUrl = useProxy && defaultStream && isHls
-    ? `/api/proxy?url=${encodeURIComponent(defaultStream.url)}${defaultStream.user_agent ? `&ua=${encodeURIComponent(defaultStream.user_agent)}` : ''}${defaultStream.referrer ? `&ref=${encodeURIComponent(defaultStream.referrer)}` : ''}`
-    : defaultStream?.url || ''
+  const displayUrl = defaultStream?.url || ''
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -123,7 +117,6 @@ export default function ChannelPage() {
             channelName={channel.name}
             quality={defaultStream.quality || null}
             label={defaultStream.label || null}
-            isProxied={useProxy}
             userAgent={defaultStream.user_agent || null}
             referrer={defaultStream.referrer || null}
           />
@@ -136,10 +129,7 @@ export default function ChannelPage() {
                 {uniqueStreams.map((s, i) => (
                   <button
                     key={i}
-                    onClick={() => {
-                      setActiveUrl(s.url)
-                      setUseProxy(false)
-                    }}
+                    onClick={() => setActiveUrl(s.url)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       s.url === activeUrl || (!activeUrl && i === 0)
                         ? 'bg-red-500/20 text-red-400 border border-red-500/30'
@@ -154,31 +144,19 @@ export default function ChannelPage() {
             </div>
           )}
 
-          {/* Proxy toggle */}
-          <div className="mt-3 flex items-center gap-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useProxy}
-                onChange={e => setUseProxy(e.target.checked)}
-                className="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-red-500 focus:ring-red-500/20 focus:ring-offset-0 accent-red-500"
-              />
-              <span className="text-zinc-400 text-xs">
-                Proxy CORS {isHls ? '(flux HLS)' : '(HLS uniquement — TS direct)'}
-              </span>
-            </label>
-
-            {/* Open in VLC */}
-            <div className="ml-auto flex items-center gap-2">
-              <a
-                href={defaultStream.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 text-xs hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors"
-              >
-                Ouvrir dans VLC ↗
-              </a>
-            </div>
+          {/* External players */}
+          <div className="mt-3 flex items-center gap-2">
+            <a
+              href={defaultStream.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 text-xs hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors"
+            >
+              Ouvrir dans VLC ↗
+            </a>
+            <span className="text-zinc-600 text-[10px]">
+              Certains flux nécessitent VLC (codecs non supportés par le navigateur)
+            </span>
           </div>
         </div>
       ) : (

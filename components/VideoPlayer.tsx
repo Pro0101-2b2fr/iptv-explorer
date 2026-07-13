@@ -1,26 +1,26 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 
 interface VideoPlayerProps {
   streamUrl: string
   channelName: string
   quality: string | null
   label: string | null
-  isProxied?: boolean
   userAgent?: string | null
   referrer?: string | null
 }
 
-// ---- Type detection ----
-type StreamType = 'hls' | 'ts' | 'mp4' | 'flv' | 'unknown'
+type StreamType = 'hls' | 'ts' | 'mp4' | 'dash' | 'flv' | 'unknown'
+
 function classify(url: string): StreamType {
   const p = url.split('?')[0].split('#')[0].toLowerCase()
   if (p.endsWith('.m3u8')) return 'hls'
+  if (p.endsWith('.mpd')) return 'dash'
   if (p.endsWith('.mp4')) return 'mp4'
   if (p.endsWith('.ts')) return 'ts'
   if (p.endsWith('.flv')) return 'flv'
-  // No extension + http → likely raw TS (by far most common IPTV pattern)
+  // No extension → likely raw TS
   if (/^https?:\/\//.test(url) && !p.split('/').pop()?.includes('.')) return 'ts'
   return 'unknown'
 }
@@ -30,6 +30,13 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, us
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [engine, setEngine] = useState('')
+
+  // Generate a .m3u playlist blob for VLC
+  const getM3uUrl = useCallback(() => {
+    const content = `#EXTM3U\n#EXTINF:-1,${channelName}\n${streamUrl}\n`
+    const blob = new Blob([content], { type: 'audio/x-mpegurl' })
+    return URL.createObjectURL(blob)
+  }, [channelName, streamUrl])
 
   useEffect(() => {
     const video = videoRef.current
@@ -56,44 +63,29 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, us
       video.load()
     }
 
-    const nativeFallback = () => {
+    const showError = (msg: string) => {
       if (cancelled) return
-      setEngine('Nat驻')
-      video.src = streamUrl
-      video.addEventListener('canplay', () => {
-        if (!cancelled) video.play().then(() => { if (!cancelled) setStatus('playing') }).catch(() => {})
-      }, { once: true })
-      video.addEventListener('playing', () => { if (!cancelled) setStatus('playing') }, { once: true })
-      video.addEventListener('error', () => {
-        if (cancelled) return
-        const me = video.error
-        setStatus('error')
-        if (me?.code === 4) setErrorMsg('Format non supporté par le navigateur')
-        else if (me?.code === 3) setErrorMsg('Erreur décodage')
-        else setErrorMsg('Erreur lecture')
-      }, { once: true })
-      timer = setTimeout(() => { if (!cancelled) { setStatus('error'); setErrorMsg('Timeout 12s') } }, 12000)
+      setStatus('error'); setErrorMsg(msg)
     }
 
     const init = async () => {
       const type = classify(streamUrl)
-      console.log(`[VideoPlayer] type=${type} engine=starting url=${streamUrl.substring(0, 80)}`)
+      console.log(`[VideoPlayer] ${type} url=${streamUrl.slice(0, 80)}`)
 
-      // ======================== HLS ========================
+      // ========== HLS ==========
       if (type === 'hls') {
         if (video.canPlayType('application/vnd.apple.mpegurl')) {
           setEngine('Safari HLS')
           video.src = streamUrl
           video.addEventListener('canplay', () => { if (!cancelled) setStatus('playing') }, { once: true })
-          video.addEventListener('error', () => { if (!cancelled) { setStatus('error'); setErrorMsg('Échec HLS natif') } }, { once: true })
-          try { await video.play() } catch (e) { if (!cancelled) setErrorMsg((e as Error).name === 'NotAllowedError' ? 'Clique pour lancer' : 'Erreur') }
+          video.addEventListener('error', () => showError('Échec HLS natif'), { once: true })
+          try { await video.play() } catch (e) { if (!cancelled) showError((e as Error).name === 'NotAllowedError' ? 'Clique pour lancer' : 'Erreur') }
           return
         }
         setEngine('hls.js')
         try {
           const m = (await import('hls.js')).default as {
-            isSupported: () => boolean
-            Events: { MANIFEST_PARSED: string; ERROR: string }
+            isSupported: () => boolean; Events: { MANIFEST_PARSED: string; ERROR: string }
             new (c: Record<string, unknown>): { loadSource: (u: string) => void; attachMedia: (v: HTMLVideoElement) => void; on: (e: string, cb: (...a: unknown[]) => void) => void; destroy: () => void }
           }
           if (!m.isSupported()) { video.src = streamUrl; try { await video.play() } catch { /* */ } return }
@@ -106,83 +98,94 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, us
             if (cancelled) return
             const d = args[1] as Record<string, unknown> | undefined
             if (!d?.fatal) return
-            setStatus('error'); setErrorMsg('Erreur HLS')
+            showError('Erreur HLS. Essaie VLC ↗')
           })
-        } catch { if (!cancelled) { setStatus('error'); setErrorMsg('HLS indisponible') } }
+        } catch { showError('HLS indisponible') }
         return
       }
 
-      // ======================== TS / FLV / unknown → mpegts.js ========================
+      // ========== DASH ==========
+      if (type === 'dash') {
+        showError('DASH (.mpd) non supporté dans le navigateur → ouvre dans VLC ↗')
+        return
+      }
+
+      // ========== TS / FLV / unknown ==========
+      // Try mpegts.js with CORS enabled
       setEngine('mpegts.js')
       try {
         const m = (await import('mpegts.js')).default as {
-          createPlayer: (ds: { type: string; url: string; isLive: boolean }, cfg?: Record<string, unknown>) => {
-            attachMediaElement: (v: HTMLVideoElement) => void
-            load: () => void
-            play: () => Promise<void>
-            destroy: () => void
-            unload: () => void
-            on: (e: string, cb: (...a: unknown[]) => void) => void
+          isSupported: () => boolean
+          createPlayer: (ds: { type: string; url: string; isLive: boolean; cors: boolean }, cfg?: Record<string, unknown>) => {
+            attachMediaElement: (v: HTMLVideoElement) => void; load: () => void; play: () => Promise<void>
+            destroy: () => void; unload: () => void; on: (e: string, cb: (...a: unknown[]) => void) => void
           }
         }
 
-        // Build config with optional custom headers
-        const config: Record<string, unknown> = {}
-        if (userAgent || referrer || navigator.userAgent) {
+        if (!m.isSupported()) { nativeFallback(); return }
+
+        const config: Record<string, unknown> = {
+          enableStashBuffer: false,   // lower latency for live
+          lazyLoad: false,
+        }
+        if (userAgent) {
           config.headers = {
-            'User-Agent': userAgent || navigator.userAgent,
+            'User-Agent': userAgent,
             ...(referrer ? { Referer: referrer } : {}),
           }
         }
 
-        const player = m.createPlayer(
-          { type: type === 'flv' ? 'flv' : 'mpegts', url: streamUrl, isLive: true },
-          config
-        )
+        const player = m.createPlayer({
+          type: type === 'flv' ? 'flv' : 'mpegts',
+          url: streamUrl,
+          isLive: true,
+          cors: true,
+        }, config)
         currentPlayer = player
         player.attachMediaElement(video)
         player.load()
 
-        // mpegts.js may not reliably trigger video 'playing'.
-        // Check if we get media info or error events
-        let mpegtsOk = false
+        video.addEventListener('playing', () => { if (!cancelled) setStatus('playing') }, { once: true })
 
-        video.addEventListener('playing', () => {
-          mpegtsOk = true
-          if (!cancelled) setStatus('playing')
-        }, { once: true })
-
-        player.play().then(() => {
-          if (!cancelled) {
-            // If we haven't got 'playing' after 2s, assume it's buffering
-            setTimeout(() => { if (!cancelled && status === 'loading') setStatus('playing') }, 2000)
-          }
-        }).catch((err: Error) => {
-          console.warn('mpegts.play() error:', err.message)
+        player.play().catch((err: Error) => {
+          console.warn('mpegts error:', err.message)
           if (cancelled) return
-          // mpegts.js failed → fallback to native
-          mpegtsCleanup(player)
+          cleanupMpegts(player)
           nativeFallback()
         })
 
-        // Timeout: if mpegts.js doesn't start streaming within 10s, try native
         timer = setTimeout(() => {
-          if (cancelled || mpegtsOk || status === 'playing') return
-          console.warn('mpegts.js timeout → native fallback')
-          mpegtsCleanup(player)
+          if (cancelled || status === 'playing') return
+          console.warn('mpegts timeout → native')
+          cleanupMpegts(player)
           video.removeAttribute('src')
           video.load()
           nativeFallback()
         }, 10000)
-
       } catch (err) {
-        console.warn('mpegts.js init error:', err)
+        console.warn('mpegts import fail:', err)
         nativeFallback()
       }
 
-      function mpegtsCleanup(p: { destroy: () => void; unload?: () => void }) {
+      function cleanupMpegts(p: { destroy: () => void; unload?: () => void }) {
         try { p.unload?.(); p.destroy() } catch { /* */ }
         currentPlayer = null
+      }
+
+      function nativeFallback() {
+        if (cancelled || !video) return
+        setEngine('Nat驻')
+        video.src = streamUrl
+        video.addEventListener('canplay', () => { if (!cancelled) video.play().then(() => { if (!cancelled) setStatus('playing') }).catch(() => {}) }, { once: true })
+        video.addEventListener('playing', () => { if (!cancelled) setStatus('playing') }, { once: true })
+        video.addEventListener('error', () => {
+          if (cancelled) return
+          const me = video.error
+          if (me?.code === 4) showError('Format non supporté par le navigateur. Télécharge le .m3u pour VLC ↓')
+          else if (me?.code === 3) showError('Erreur décodage. Essaie VLC ↗')
+          else showError('Erreur lecture. Télécharge le .m3u ↓')
+        }, { once: true })
+        timer = setTimeout(() => showError('Timeout. Télécharge le .m3u ↓'), 12000)
       }
     }
 
@@ -218,10 +221,18 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, us
                 <svg className="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                 </svg>
-                <p className="text-red-400 text-sm font-medium">Flux indisponible dans le navigateur</p>
+                <p className="text-red-400 text-sm font-medium">Flux non lisible dans le navigateur</p>
                 <p className="text-zinc-500 text-xs max-w-sm">{errorMsg}</p>
                 {engine && <p className="text-zinc-600 text-[10px]">{engine}</p>}
-                <p className="text-zinc-600 text-[10px] mt-2">Utilise le lien VLC ci-dessous ↗</p>
+                <div className="flex gap-2 mt-3">
+                  <a
+                    href={getM3uUrl()}
+                    download={`${channelName.replace(/[^a-z0-9]/gi, '_')}.m3u`}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 text-xs hover:bg-emerald-600/30 transition-colors"
+                  >
+                    Télécharger .m3u pour VLC
+                  </a>
+                </div>
               </div>
             )}
             {status === 'idle' && (
