@@ -56,7 +56,10 @@ export default function ChannelPage() {
     return hd || uniqueStreams[0] || null
   })()
 
-  const displayUrl = useProxy && defaultStream
+  // Proxy only for HLS (segmented .ts files, short fetches → fits Vercel timeout)
+  // TS/FLV streams go direct to let mpegts.js handle them with custom headers
+  const isHls = defaultStream?.url.toLowerCase().includes('.m3u8')
+  const displayUrl = useProxy && defaultStream && isHls
     ? `/api/proxy?url=${encodeURIComponent(defaultStream.url)}${defaultStream.user_agent ? `&ua=${encodeURIComponent(defaultStream.user_agent)}` : ''}${defaultStream.referrer ? `&ref=${encodeURIComponent(defaultStream.referrer)}` : ''}`
     : defaultStream?.url || ''
 
@@ -161,7 +164,7 @@ export default function ChannelPage() {
                 className="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-red-500 focus:ring-red-500/20 focus:ring-offset-0 accent-red-500"
               />
               <span className="text-zinc-400 text-xs">
-                Proxy CORS (si le flux ne se lance pas)
+                Proxy CORS {isHls ? '(flux HLS)' : '(HLS uniquement — TS direct)'}
               </span>
             </label>
 
