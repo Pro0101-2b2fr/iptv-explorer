@@ -42,7 +42,8 @@ export async function fetchChannels(filter?: {
   let filtered = all
 
   if (filter?.country) {
-    filtered = filtered.filter((ch: any) => ch.country === filter.country)
+    const code = filter.country.toUpperCase()
+    filtered = filtered.filter((ch: any) => ch.country === code)
   }
   if (filter?.category) {
     filtered = filtered.filter(
