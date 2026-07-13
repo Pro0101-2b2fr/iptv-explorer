@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 interface VideoPlayerProps {
   streamUrl: string
@@ -11,188 +11,140 @@ interface VideoPlayerProps {
   referrer?: string | null
 }
 
-type StreamType = 'hls' | 'ts' | 'mp4' | 'dash' | 'flv' | 'unknown'
-
-function classify(url: string): StreamType {
-  const p = url.split('?')[0].split('#')[0].toLowerCase()
-  if (p.endsWith('.m3u8')) return 'hls'
-  if (p.endsWith('.mpd')) return 'dash'
-  if (p.endsWith('.mp4')) return 'mp4'
-  if (p.endsWith('.ts')) return 'ts'
-  if (p.endsWith('.flv')) return 'flv'
-  // No extension → likely raw TS
-  if (/^https?:\/\//.test(url) && !p.split('/').pop()?.includes('.')) return 'ts'
-  return 'unknown'
-}
-
-export default function VideoPlayer({ streamUrl, channelName, quality, label, userAgent, referrer }: VideoPlayerProps) {
+export default function VideoPlayer({ streamUrl, channelName, quality, label }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const [engine, setEngine] = useState('')
+  const [engine, setEngine] = useState<string>('')
 
-  // Generate a .m3u playlist blob for VLC
-  const getM3uUrl = useCallback(() => {
-    const content = `#EXTM3U\n#EXTINF:-1,${channelName}\n${streamUrl}\n`
-    const blob = new Blob([content], { type: 'audio/x-mpegurl' })
-    return URL.createObjectURL(blob)
-  }, [channelName, streamUrl])
+  const getMimeType = (url: string): string => {
+    const parts = url.split('.')
+    if (parts.length < 2) return ''
+    const ext = parts.pop()!.toLowerCase()
+    switch (ext) {
+      case 'mp4': return 'video/mp4'
+      case 'ts': return 'video/mp2t'
+      case 'm3u8': return 'application/vnd.apple.mpegurl'
+      case 'webm': return 'video/webm'
+      default: return ''
+    }
+  }
+
+  // Helper labels
+  const isGeo = label?.toLowerCase().includes('geo')
+  const isNot247 = label?.toLowerCase().includes('not 24/7')
+  const isHLS = streamUrl.toLowerCase().endsWith('.m3u8')
+
+  const getDownloadUrl = () => streamUrl
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !streamUrl) { setStatus('idle'); setEngine(''); return }
+    if (!video || !streamUrl) {
+      setStatus('idle')
+      return
+    }
 
-    let cancelled = false
-    let currentPlayer: { destroy: () => void; unload?: () => void } | null = null
-    let timer: ReturnType<typeof setTimeout> | null = null
-
+    // Reset
     setStatus('loading')
     setErrorMsg('')
     setEngine('')
 
-    const cleanup = () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-      if (currentPlayer) {
-        try {
-          if ('unload' in currentPlayer) (currentPlayer as { unload: () => void }).unload()
-          currentPlayer.destroy()
-        } catch { /* */ }
-      }
-      video.removeAttribute('src')
-      video.load()
-    }
-
-    const showError = (msg: string) => {
-      if (cancelled) return
-      setStatus('error'); setErrorMsg(msg)
-    }
-
-    const init = async () => {
-      const type = classify(streamUrl)
-      console.log(`[VideoPlayer] ${type} url=${streamUrl.slice(0, 80)}`)
-
-      // ========== HLS ==========
-      if (type === 'hls') {
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          setEngine('Safari HLS')
-          video.src = streamUrl
-          video.addEventListener('canplay', () => { if (!cancelled) setStatus('playing') }, { once: true })
-          video.addEventListener('error', () => showError('Échec HLS natif'), { once: true })
-          try { await video.play() } catch (e) { if (!cancelled) showError((e as Error).name === 'NotAllowedError' ? 'Clique pour lancer' : 'Erreur') }
-          return
-        }
-        setEngine('hls.js')
-        try {
-          const m = (await import('hls.js')).default as {
-            isSupported: () => boolean; Events: { MANIFEST_PARSED: string; ERROR: string }
-            new (c: Record<string, unknown>): { loadSource: (u: string) => void; attachMedia: (v: HTMLVideoElement) => void; on: (e: string, cb: (...a: unknown[]) => void) => void; destroy: () => void }
-          }
-          if (!m.isSupported()) { video.src = streamUrl; try { await video.play() } catch { /* */ } return }
-          const hls = new m({ enableWorker: true, lowLatencyMode: false, backBufferLength: 30, maxBufferLength: 30, maxMaxBufferLength: 60 })
-          currentPlayer = hls
-          hls.loadSource(streamUrl)
-          hls.attachMedia(video)
-          hls.on(m.Events.MANIFEST_PARSED, () => { if (!cancelled) video.play().catch(() => {}) })
-          hls.on(m.Events.ERROR, (...args: unknown[]) => {
-            if (cancelled) return
-            const d = args[1] as Record<string, unknown> | undefined
-            if (!d?.fatal) return
-            showError('Erreur HLS. Essaie VLC ↗')
-          })
-        } catch { showError('HLS indisponible') }
-        return
-      }
-
-      // ========== DASH ==========
-      if (type === 'dash') {
-        showError('DASH (.mpd) non supporté dans le navigateur → ouvre dans VLC ↗')
-        return
-      }
-
-      // ========== TS / FLV / unknown ==========
-      // Try mpegts.js with CORS enabled
-      setEngine('mpegts.js')
-      try {
-        const m = (await import('mpegts.js')).default as {
-          isSupported: () => boolean
-          createPlayer: (ds: { type: string; url: string; isLive: boolean; cors: boolean }, cfg?: Record<string, unknown>) => {
-            attachMediaElement: (v: HTMLVideoElement) => void; load: () => void; play: () => Promise<void>
-            destroy: () => void; unload: () => void; on: (e: string, cb: (...a: unknown[]) => void) => void
-          }
-        }
-
-        if (!m.isSupported()) { nativeFallback(); return }
-
-        const config: Record<string, unknown> = {
-          enableStashBuffer: false,   // lower latency for live
-          lazyLoad: false,
-        }
-        if (userAgent) {
-          config.headers = {
-            'User-Agent': userAgent,
-            ...(referrer ? { Referer: referrer } : {}),
-          }
-        }
-
-        const player = m.createPlayer({
-          type: type === 'flv' ? 'flv' : 'mpegts',
-          url: streamUrl,
-          isLive: true,
-          cors: true,
-        }, config)
-        currentPlayer = player
-        player.attachMediaElement(video)
-        player.load()
-
-        video.addEventListener('playing', () => { if (!cancelled) setStatus('playing') }, { once: true })
-
-        player.play().catch((err: Error) => {
-          console.warn('mpegts error:', err.message)
-          if (cancelled) return
-          cleanupMpegts(player)
-          nativeFallback()
-        })
-
-        timer = setTimeout(() => {
-          if (cancelled || status === 'playing') return
-          console.warn('mpegts timeout → native')
-          cleanupMpegts(player)
+    const isHLS = streamUrl.toLowerCase().endsWith('.m3u8')
+    const mimeType = getMimeType(streamUrl)
+    const canPlayNative = mimeType ? video.canPlayType(mimeType) !== '' : false
+    // If HLS, try HLS.js (with Safari native fallback)
+        if (isHLS) {
+      const loadHLS = async () => {
+        // Clean up any previous instance
+        if (video.src) {
           video.removeAttribute('src')
           video.load()
-          nativeFallback()
-        }, 10000)
-      } catch (err) {
-        console.warn('mpegts import fail:', err)
-        nativeFallback()
+        }
+
+        // Try HLS.js
+        try {
+          const Hls = (await import('hls.js')).default
+          if (!Hls.isSupported()) {
+            setStatus('error')
+            setErrorMsg('HLS non supporté par ce navigateur')
+            setEngine(' aucun')
+            return
+          }
+          const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+            backBufferLength: 30,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+          })
+          hls.loadSource(streamUrl)
+          hls.attachMedia(video)
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch(() => {
+              // If play fails due to user interaction, keep loading state until user clicks
+              setStatus('loading')
+              setErrorMsg('Clique sur le lecteur pour lancer la lecture')
+            })
+          })
+          hls.on(Hls.Events.ERROR, (event: any, data: any) => {
+            if (data.fatal) {
+              console.warn('HLS fatal error:', data.type, data.details)
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  setErrorMsg('Erreur réseau – vérifie ton connexion ou essaie plus tard')
+                  break
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  setErrorMsg('Erreur média – flux peut être corrompu ou géo‑bloqué')
+                  break
+                default:
+                  setErrorMsg(`Erreur HLS: ${data.type}`)
+              }
+              setStatus('error')
+              setEngine(' HLS')
+              hls.destroy()
+            }
+          })
+          video.addEventListener('playing', () => setStatus('playing'), { once: true })
+          video.addEventListener('waiting', () => {
+            if (status === 'playing') setStatus('loading')
+          })
+        } catch (e) {
+          console.error('Failed to load Hls', e)
+          setStatus('error')
+          setErrorMsg('Impossible de charger le lecteur HLS')
+        }
       }
 
-      function cleanupMpegts(p: { destroy: () => void; unload?: () => void }) {
-        try { p.unload?.(); p.destroy() } catch { /* */ }
-        currentPlayer = null
-      }
-
-      function nativeFallback() {
-        if (cancelled || !video) return
-        setEngine('Nat驻')
-        video.src = streamUrl
-        video.addEventListener('canplay', () => { if (!cancelled) video.play().then(() => { if (!cancelled) setStatus('playing') }).catch(() => {}) }, { once: true })
-        video.addEventListener('playing', () => { if (!cancelled) setStatus('playing') }, { once: true })
-        video.addEventListener('error', () => {
-          if (cancelled) return
-          const me = video.error
-          if (me?.code === 4) showError('Format non supporté par le navigateur. Télécharge le .m3u pour VLC ↓')
-          else if (me?.code === 3) showError('Erreur décodage. Essaie VLC ↗')
-          else showError('Erreur lecture. Télécharge le .m3u ↓')
-        }, { once: true })
-        timer = setTimeout(() => showError('Timeout. Télécharge le .m3u ↓'), 12000)
-      }
+      loadHLS()
+      return
     }
 
-    init()
-    return cleanup
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Not HLS: try native playback if browser reports support
+    if (canPlayNative) {
+      video.src = streamUrl
+      video.addEventListener('canplay', () => setStatus('playing'), { once: true })
+      video.addEventListener('error', () => {
+        setStatus('error')
+        setErrorMsg('Erreur de lecture native. Le navigateur ne supporte peut-être pas ce format.')
+      }, { once: true })
+      video.play().catch(() => {
+        setStatus('error')
+        setErrorMsg('Impossible de démarrer la lecture. Clique sur le lecteur pour réessayer.')
+      })
+      return
+    }
+
+    // Unsupported format – suggest VLC
+    setStatus('error')
+    setErrorMsg(`Format ${(streamUrl.split('.').pop() ?? '').toUpperCase()} non lisible dans le navigateur. Utilisez VLC.`)
+    // Provide a download link for the raw stream (may be .ts, .mp4, etc.)
   }, [streamUrl])
+
+  // Helper to get a download link (same URL; user can rename extension if needed)
+  const getDownloadUrl = () => streamUrl
+
+  
 
   return (
     <div className="relative w-full bg-black rounded-xl overflow-hidden shadow-2xl">
@@ -203,16 +155,16 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, us
         playsInline
         poster={`data:image/svg+xml,${encodeURIComponent(
           `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect fill="#0a0a0a" width="1280" height="720"/><text fill="#444" font-family="sans-serif" font-size="24" text-anchor="middle" x="640" y="360">${channelName}</text></svg>`
-        )}`}
-      />
-
+        )}`} />
+      
+      {/* Overlay for loading / error / idle */}
       {status !== 'playing' && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
           <div className="text-center">
             {status === 'loading' && (
               <div className="flex flex-col items-center gap-3">
                 <div className="w-10 h-10 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                <p className="text-zinc-400 text-sm">Chargement...</p>
+                <p className="text-zinc-400 text-sm">Chargement du flux...</p>
                 {engine && <p className="text-zinc-600 text-xs">{engine}</p>}
               </div>
             )}
@@ -221,17 +173,31 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, us
                 <svg className="w-10 h-10 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                 </svg>
-                <p className="text-red-400 text-sm font-medium">Flux non lisible dans le navigateur</p>
+                <p className="text-red-400 text-sm font-medium">Flux non lisible</p>
                 <p className="text-zinc-500 text-xs max-w-sm">{errorMsg}</p>
-                {engine && <p className="text-zinc-600 text-[10px]">{engine}</p>}
+                {/* Offer to open/download the raw stream for VLC */}
                 <div className="flex gap-2 mt-3">
                   <a
-                    href={getM3uUrl()}
-                    download={`${channelName.replace(/[^a-z0-9]/gi, '_')}.m3u`}
+                    href={getDownloadUrl()}
+                    download={`${channelName.replace(/[^a-z0-9]/gi, '_')}.${streamUrl.split('.').pop()}`}
                     className="px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 text-xs hover:bg-emerald-600/30 transition-colors"
                   >
-                    Télécharger .m3u pour VLC
+                    Télécharger le flux pour VLC
                   </a>
+                  <button
+                    onClick={() => {
+                      // Attempt to launch VLC via custom protocol (may not work in all browsers)
+                      const vlcUrl = `vlc://${encodeURIComponent(getDownloadUrl())}`
+                      // Fallback to download if protocol not handled
+                      const dl = document.createElement('a')
+                      dl.href = getDownloadUrl()
+                      dl.download = `${channelName.replace(/[^a-z0-9]/gi, '_')}.${streamUrl.split('.').pop()}`
+                      dl.click()
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-600/30 text-xs hover:bg-blue-600/30 transition-colors"
+                  >
+                    Ouvrir dans VLC
+                  </button>
                 </div>
               </div>
             )}
@@ -247,10 +213,27 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label, us
         </div>
       )}
 
-      <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
-        <span className="px-2 py-0.5 bg-zinc-700/50 text-zinc-300 text-[10px] rounded-full">{classify(streamUrl).toUpperCase()}</span>
-        {label?.includes('geo') && <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] rounded-full">Geo</span>}
-        {quality && <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] rounded-full">{quality}</span>}
+      {/* Labels (geo, not 24/7, quality, protocol) */}
+      <div className="absolute top-3 left-3 flex gap-2">
+        {isGeo && (
+          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded-full border border-amber-500/30">
+            Geo
+          </span>
+        )}
+        {isNot247 && (
+          <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded-full border border-blue-500/30">
+            Not 24/7
+          </span>
+        )}
+        {quality && (
+          <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs rounded-full border border-emerald-500/30">
+            {quality}
+          </span>
+        )}
+        {/* Show stream type (HLS, TS, MP4, etc.) */}
+        <span className="px-2 py-0.5 bg-zinc-700/20 text-zinc-300 text-[10px] rounded-full">
+          {isHLS ? 'HLS' : getMimeType(streamUrl) === 'video/mp2t' ? 'TS' : getMimeType(streamUrl) === 'video/mp4' ? 'MP4' : streamUrl.split('.').pop().toUpperCase()}
+        </span>
       </div>
     </div>
   )
