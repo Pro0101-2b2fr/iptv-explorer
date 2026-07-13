@@ -1,0 +1,318 @@
+# Instincts generated from https://github.com/Pro0101-2b2fr/iptv-explorer
+# Generated: 2026-07-13T19:10:35.518Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: iptv-explorer-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat: ajoute le système de chargement avec squelettes
+
+---
+id: iptv-explorer-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Commit Length
+
+## Action
+
+Write moderate-length commit messages (~53 characters)
+
+## Evidence
+
+- Average commit message length: 53 chars
+- Based on 1 commits
+
+---
+id: iptv-explorer-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Naming Files
+
+## Action
+
+Use PascalCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: PascalCase
+
+---
+id: iptv-explorer-import-alias
+trigger: "when importing modules"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Import Alias
+
+## Action
+
+Use path aliases (@/, ~/) instead of relative imports
+
+## Evidence
+
+- Import analysis shows alias pattern
+- Example: import { x } from '@/lib/x'
+
+---
+id: iptv-explorer-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Export Style
+
+## Action
+
+Prefer mixed exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: mixed
+
+---
+id: iptv-explorer-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: iptv-explorer-instinct-file-naming
+trigger: "When creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct File Naming
+
+## Action
+
+Name the file using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.files
+
+---
+id: iptv-explorer-instinct-function-naming
+trigger: "When defining a new function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Function Naming
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.functions
+
+---
+id: iptv-explorer-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes
+
+---
+id: iptv-explorer-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: iptv-explorer-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Import Style
+
+## Action
+
+Use alias import style
+
+## Evidence
+
+- Pattern in importStyle
+
+---
+id: iptv-explorer-instinct-export-style
+trigger: "When exporting modules or functions"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Export Style
+
+## Action
+
+Use mixed export style (both default and named exports as appropriate)
+
+## Evidence
+
+- Pattern in exportStyle
+
+---
+id: iptv-explorer-instinct-commit-format
+trigger: "When writing a git commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Commit Format
+
+## Action
+
+Use the conventional commit format with the 'feat' prefix for new features
+
+## Evidence
+
+- Seen in commit: 'feat: ajoute le système de chargement avec squelettes'
+- Pattern in commits.prefixes
+
+---
+id: iptv-explorer-instinct-commit-length
+trigger: "When writing a git commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Commit Length
+
+## Action
+
+Keep the commit message concise, around 53 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength
+
+---
+id: iptv-explorer-instinct-error-handling
+trigger: "When handling errors in code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Error Handling
+
+## Action
+
+Use try-catch blocks for error handling
+
+## Evidence
+
+- Pattern in errorHandling.style
+
+---
+id: iptv-explorer-instinct-test-location
+trigger: "When creating new test files"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: Pro0101-2b2fr/iptv-explorer
+---
+
+# Iptv Explorer Instinct Test Location
+
+## Action
+
+Place test files in a separate location from source files
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation
+
