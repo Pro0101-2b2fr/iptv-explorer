@@ -30,30 +30,25 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label }: 
     }
   }
 
-  // Helper labels
+  const getDownloadUrl = () => streamUrl
   const isGeo = label?.toLowerCase().includes('geo')
   const isNot247 = label?.toLowerCase().includes('not 24/7')
   const isHLS = streamUrl.toLowerCase().endsWith('.m3u8')
 
-  const getDownloadUrl = () => streamUrl
-
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !streamUrl) {
-      setStatus('idle')
-      return
-    }
+    if (!video || !streamUrl) { setStatus('idle'); return }
 
     // Reset
     setStatus('loading')
     setErrorMsg('')
     setEngine('')
 
-    const isHLS = streamUrl.toLowerCase().endsWith('.m3u8')
     const mimeType = getMimeType(streamUrl)
     const canPlayNative = mimeType ? video.canPlayType(mimeType) !== '' : false
+
     // If HLS, try HLS.js (with Safari native fallback)
-        if (isHLS) {
+    if (isHLS) {
       const loadHLS = async () => {
         // Clean up any previous instance
         if (video.src) {
@@ -139,12 +134,7 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label }: 
     setStatus('error')
     setErrorMsg(`Format ${(streamUrl.split('.').pop() ?? '').toUpperCase()} non lisible dans le navigateur. Utilisez VLC.`)
     // Provide a download link for the raw stream (may be .ts, .mp4, etc.)
-  }, [streamUrl])
-
-  // Helper to get a download link (same URL; user can rename extension if needed)
-  const getDownloadUrl = () => streamUrl
-
-  
+  }, [streamUrl, isHLS])
 
   return (
     <div className="relative w-full bg-black rounded-xl overflow-hidden shadow-2xl">
@@ -232,7 +222,7 @@ export default function VideoPlayer({ streamUrl, channelName, quality, label }: 
         )}
         {/* Show stream type (HLS, TS, MP4, etc.) */}
         <span className="px-2 py-0.5 bg-zinc-700/20 text-zinc-300 text-[10px] rounded-full">
-          {isHLS ? 'HLS' : getMimeType(streamUrl) === 'video/mp2t' ? 'TS' : getMimeType(streamUrl) === 'video/mp4' ? 'MP4' : streamUrl.split('.').pop().toUpperCase()}
+          {isHLS ? 'HLS' : getMimeType(streamUrl) === 'video/mp2t' ? 'TS' : getMimeType(streamUrl) === 'video/mp4' ? 'MP4' : (streamUrl.split('.').pop() ?? '').toUpperCase()}
         </span>
       </div>
     </div>
