@@ -46,11 +46,11 @@ export default function CountryPage() {
   // Sync initial state once channels are loaded (handles fresh page loads with URL params)
   useEffect(() => {
     if (loading || channels.length === 0 || syncedOnce.current) return
-    const { cat, pg } = getStateFromUrl()
-    if (cat !== activeCategory) setActiveCategory(cat)
-    if (pg !== page) setPage(pg)
+    const state = getStateFromUrl()
+    setActiveCategory(state.cat)
+    setPage(state.pg)
     syncedOnce.current = true
-  })
+  }, [loading, channels.length, getStateFromUrl])
 
   const handleCategory = (cat: string | null) => {
     setActiveCategory(cat)
