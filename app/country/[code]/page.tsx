@@ -22,6 +22,7 @@ export default function CountryPage() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list')
   const [sortBy, setSortBy] = useStorageState('name-asc', 'country-sort')
   const [localSearch, setLocalSearch] = useState('')
+  const [hideEmptyStreams, setHideEmptyStreams] = useStorageState(true, 'country-hide-empty-streams')
 
   // Read initial state from URL (avoid useSearchParams — needs Suspense)
   const getStateFromUrl = useCallback((): { cat: string | null; pg: number } => {
@@ -82,15 +83,26 @@ export default function CountryPage() {
   const filteredBySearch = useMemo(() => {
     if (!localSearch.trim()) return filteredByCategory
     const searchTerm = localSearch.toLowerCase().trim()
-    return filteredByCategory.filter(ch => 
+    return filteredByCategory.filter(ch =>
       ch.name.toLowerCase().includes(searchTerm) ||
       (ch.alt_names && ch.alt_names.some(name => name.toLowerCase().includes(searchTerm)))
     )
   }, [filteredByCategory, localSearch])
 
+  // Get stream count for a channel from pre-fetched counts
+  const getStreamCount = useCallback((channelId: string): number => {
+    return streamCounts[channelId] || 0
+  }, [streamCounts])
+
+  // Apply hide empty streams filter
+  const filteredByStreams = useMemo(() => {
+    if (!hideEmptyStreams) return filteredBySearch
+    return filteredBySearch.filter(ch => getStreamCount(ch.id) > 0)
+  }, [filteredBySearch, hideEmptyStreams, getStreamCount])
+
   // Apply sorting
   const sortedChannels = useMemo(() => {
-    return [...filteredBySearch].sort((a, b) => {
+    return [...filteredByStreams].sort((a, b) => {
       if (sortBy === 'name-asc') {
         return a.name.localeCompare(b.name)
       } else if (sortBy === 'name-desc') {
@@ -104,7 +116,7 @@ export default function CountryPage() {
       }
       return 0
     })
-  }, [filteredBySearch, sortBy])
+  }, [filteredByStreams, sortBy])
 
   // Paginate
   const totalPages = Math.ceil(sortedChannels.length / perPage)
@@ -112,11 +124,6 @@ export default function CountryPage() {
   // Adjust page if it exceeds new total (handle during render instead of effect)
   const safePage = page > totalPages && totalPages > 0 ? totalPages : page
   const paginated = sortedChannels.slice((safePage - 1) * perPage, safePage * perPage)
-
-  // Get stream count for a channel from pre-fetched counts
-  const getStreamCount = useCallback((channelId: string): number => {
-    return streamCounts[channelId] || 0
-  }, [streamCounts])
 
   if (loading || countsLoading) {
     return (
@@ -158,7 +165,7 @@ export default function CountryPage() {
       </div>
 
       <p className="text-zinc-500 text-sm mb-6">
-        {sortedChannels.length} chaîne{sortedChannels.length !== 1 ? 's' : ''}
+        {filteredByStreams.length} chaîne{filteredByStreams.length !== 1 ? 's' : ''}
         {activeCategory ? ` · ${activeCategory}` : ''}
       </p>
 
@@ -228,6 +235,17 @@ export default function CountryPage() {
             {/* Sort options would go here in a dropdown */}
           </div>
         </div>
+
+        {/* Hide empty streams toggle */}
+        <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={hideEmptyStreams}
+            onChange={(e) => setHideEmptyStreams(e.target.checked)}
+            className="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-red-500 focus:ring-red-500/20 focus:ring-1 focus:border-red-500/50 accent-red-500"
+          />
+          <span>Masquer sans flux</span>
+        </label>
       </div>
 
       {/* Category filters */}
