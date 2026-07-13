@@ -17,6 +17,7 @@ function loadFavorites(): FavoriteChannel[] {
     const raw = localStorage.getItem(STORAGE_KEY)
     return raw ? JSON.parse(raw) : []
   } catch {
+    console.error('Failed to load favorites from localStorage', new Error())
     return []
   }
 }
@@ -24,7 +25,9 @@ function loadFavorites(): FavoriteChannel[] {
 function saveFavorites(favorites: FavoriteChannel[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(favorites))
-  } catch {}
+  } catch (e) {
+    console.error('Failed to save favorites to localStorage', e)
+  }
 }
 
 export function useFavorites() {
