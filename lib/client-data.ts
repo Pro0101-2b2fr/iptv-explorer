@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 
 // Client-side data store — loads from iptv-org.github.io (CORS-friendly)
 // and caches in memory for the session
@@ -203,14 +203,22 @@ export function useCategories(): Category[] {
   const [categories, setCategories] = useState<Category[]>([])
 
   useEffect(() => {
-    if (categoriesCache) {
-      setCategories(categoriesCache)
-      return
+    let cancelled = false
+    async function load() {
+      if (categoriesCache) {
+        if (!cancelled) setCategories(categoriesCache)
+        return
+      }
+      try {
+        const data = await fetchJson<Category[]>(`${API_BASE}/categories.json`)
+        categoriesCache = data
+        if (!cancelled) setCategories(data)
+      } catch {
+        // Ignore
+      }
     }
-    fetchJson<Category[]>(`${API_BASE}/categories.json`).then(data => {
-      categoriesCache = data
-      setCategories(data)
-    })
+    load()
+    return () => { cancelled = true }
   }, [])
 
   return categories
@@ -220,16 +228,24 @@ export function useCountryName(code: string): string {
   const [name, setName] = useState(code)
 
   useEffect(() => {
-    if (countriesCache) {
-      const c = countriesCache.find(c => c.code === code)
-      if (c) setName(c.name)
-      return
+    let cancelled = false
+    async function load() {
+      if (countriesCache) {
+        const c = countriesCache.find(c => c.code === code)
+        if (c && !cancelled) setName(c.name)
+        return
+      }
+      try {
+        const data = await fetchJson<Country[]>(`${API_BASE}/countries.json`)
+        countriesCache = data
+        const c = data.find(c => c.code === code)
+        if (c && !cancelled) setName(c.name)
+      } catch {
+        // Ignore
+      }
     }
-    fetchJson<Country[]>(`${API_BASE}/countries.json`).then(data => {
-      countriesCache = data
-      const c = data.find(c => c.code === code)
-      if (c) setName(c.name)
-    })
+    load()
+    return () => { cancelled = true }
   }, [code])
 
   return name
@@ -246,17 +262,19 @@ export function useSearchChannels(query: string): { results: Channel[]; total: n
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([])
-      setTotal(0)
-      setLoading(false)
-      return
-    }
-
     let cancelled = false
-    const q = query.toLowerCase()
+    const q = query.toLowerCase().trim()
 
     async function load() {
+      if (!q) {
+        if (!cancelled) {
+          setResults([])
+          setTotal(0)
+          setLoading(false)
+        }
+        return
+      }
+
       setLoading(true)
       try {
         if (!channelsCache) {
@@ -285,4 +303,41 @@ export function useSearchChannels(query: string): { results: Channel[]; total: n
   }, [query])
 
   return { results, total, loading }
+}
+
+// Fetch stream counts for all channels in a country
+export function useStreamCounts(countryCode: string): { counts: Record<string, number>; loading: boolean } {
+  const [counts, setCounts] = useState<Record<string, number>>({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function load() {
+      if (!countryCode) {
+        if (!cancelled) setLoading(false)
+        return
+      }
+
+      try {
+        const res = await fetch(`/api/streams/count?country=${countryCode.toUpperCase()}`)
+        if (cancelled) return
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled) setCounts(data)
+        } else {
+          if (!cancelled) setCounts({})
+        }
+      } catch {
+        if (!cancelled) setCounts({})
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load()
+    return () => { cancelled = true }
+  }, [countryCode])
+
+  return { counts, loading }
 }

@@ -1,5 +1,5 @@
 // Favorites system using localStorage
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 
 export interface FavoriteChannel {
   id: string
@@ -28,13 +28,8 @@ function saveFavorites(favorites: FavoriteChannel[]) {
 }
 
 export function useFavorites() {
-  const [favorites, setFavorites] = useState<FavoriteChannel[]>([])
-  const [isLoaded, setIsLoaded] = useState(false)
-
-  useEffect(() => {
-    setFavorites(loadFavorites())
-    setIsLoaded(true)
-  }, [])
+  const [favorites, setFavorites] = useState<FavoriteChannel[]>(() => loadFavorites())
+  const [isLoaded] = useState(true)
 
   const addFavorite = useCallback((channel: FavoriteChannel) => {
     setFavorites(prev => {

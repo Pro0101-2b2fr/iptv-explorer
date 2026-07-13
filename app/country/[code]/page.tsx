@@ -3,25 +3,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { useChannelsByCountry, useCategories, useCountryName } from '@/lib/client-data'
+import { useChannelsByCountry, useCategories, useCountryName, useStreamCounts } from '@/lib/client-data'
 import LogoImage from '@/components/LogoImage'
 import FavoriteButton from '@/components/FavoriteButton'
 import { ChannelListSkeletons, Skeleton } from '@/components/Skeleton'
-
-interface Channel {
-  id: string
-  name: string
-  alt_names: string[]
-  network: string | null
-  owners: string[]
-  country: string
-  categories: string[]
-  is_nsfw: boolean
-  launched: string | null
-  closed: string | null
-  replaced_by: string | null
-  website: string | null
-}
 
 export default function CountryPage() {
   const params = useParams()
@@ -30,6 +15,7 @@ export default function CountryPage() {
   const { channels, loading } = useChannelsByCountry(code)
   const countryName = useCountryName(code)
   const categories = useCategories()
+  const { counts: streamCounts, loading: countsLoading } = useStreamCounts(code)
   const perPage = 40
 
   // UI State
@@ -122,25 +108,17 @@ export default function CountryPage() {
 
   // Paginate
   const totalPages = Math.ceil(sortedChannels.length / perPage)
-  const paginated = sortedChannels.slice((page - 1) * perPage, page * perPage)
 
-  // Adjust page if it exceeds new total
-  useEffect(() => {
-    if (page > totalPages && totalPages > 0) {
-      setPage(totalPages)
-      syncUrl(activeCategory, totalPages)
-    }
-  }, [totalPages, page, activeCategory, syncUrl])
+  // Adjust page if it exceeds new total (handle during render instead of effect)
+  const safePage = page > totalPages && totalPages > 0 ? totalPages : page
+  const paginated = sortedChannels.slice((safePage - 1) * perPage, safePage * perPage)
 
-  // Get stream count for a channel (would need to fetch streams data)
-  // For now, we'll simulate or leave as placeholder
+  // Get stream count for a channel from pre-fetched counts
   const getStreamCount = useCallback((channelId: string): number => {
-    // In a real app, we would fetch streams data or have it pre-loaded
-    // For demo purposes, return a mock value or 0
-    return 0
-  }, [])
+    return streamCounts[channelId] || 0
+  }, [streamCounts])
 
-  if (loading) {
+  if (loading || countsLoading) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Skeleton className="w-32 h-5 mb-6" />
